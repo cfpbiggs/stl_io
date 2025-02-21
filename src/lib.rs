@@ -39,7 +39,7 @@
 use byteorder::{LittleEndian, ReadBytesExt, WriteBytesExt};
 use float_cmp::ApproxEq;
 use std::collections::HashMap;
-use std::io::{BufRead, BufReader, BufWriter};
+use std::io::{BufRead, BufReader, BufWriter, Error};
 use std::io::{Read, Result, Write};
 use std::iter::Iterator;
 
@@ -94,6 +94,40 @@ pub struct Triangle {
     pub vertices: [Vertex; 3],
 }
 
+impl Triangle{
+    /// Creates a Triangle from three vertices using the cross-product of the vector from Vertex 0
+    /// to Vertex 1 and from Vertex 0 to Vertex 2. Performs a check if the cross-product is valid,
+    /// and returns a Triangle only if the Triangle's unit-normal is calculable.
+    fn from_vertices(vertices: [Vertex; 3]) -> Result<Triangle> {
+        let v1: Vertex = Vertex::new([vertices[1][0] - vertices[0][0],
+            vertices[1][1] - vertices[0][1], vertices[1][2] - vertices[0][2]]);
+        let v2: Vertex = Vertex::new([vertices[2][0] - vertices[0][0],
+            vertices[2][1] - vertices[0][1], vertices[2][2] - vertices[0][2]]);
+        let cross: Vertex = Vertex::new([
+            v1[1]*v2[2] - v1[2]*v2[1],
+            v1[2]*v2[0] - v1[0]*v2[2],
+            v1[0]*v2[1] - v1[1]*v2[0]]);
+        let mag: f32 = (cross[0]*cross[0] + cross[1]*cross[1] + cross[2]*cross[2]).sqrt();
+        match mag {
+        0.0 => Err(::std::io::Error::new(
+            ::std::io::ErrorKind::InvalidData,
+                "Vertices would result in degenerate triangle."
+            )),
+            x if x.is_nan() => Err(::std::io::Error::new(
+                ::std::io::ErrorKind::InvalidData,
+                "Cross-product magnitude is NaN."
+            )),
+            f32::INFINITY => Err(::std::io::Error::new(
+                ::std::io::ErrorKind::InvalidData,
+                "Cross-product magnitude is infinite."
+            )),
+        _ => {
+            let normal = Vector::new([cross[0]/mag, cross[1]/mag, cross[2]/mag]);
+            Ok(Triangle{normal, vertices})}
+        }
+    }
+}
+
 /// STL Triangle in indexed form, consisting of a normal and three indices to vertices in the
 /// vertex list.
 /// This format is more compact, since in real world Meshes Triangles usually share vertices with
@@ -113,7 +147,7 @@ pub struct IndexedTriangle {
 pub struct IndexedMesh {
     /// List of vertices.
     pub vertices: Vec<Vertex>,
-    /// List of triangles..
+    /// List of triangles.
     pub faces: Vec<IndexedTriangle>,
 }
 
@@ -839,5 +873,18 @@ mod test {
         let blender_area: f32 = 0.04998364;
 
         assert!(total_area.approx_eq(blender_area, F32Margin::default()));
+    }
+
+    #[test]
+    fn triangle_from_vertices() {
+        let a: Vector<f32> = Vector::new([1.0, 0.0, 0.0]);
+        let b: Vector<f32> = Vector::new([0.0, 1.0, 0.0]);
+        let c: Vector<f32> = Vector::new([-1.0, 0.0, 0.0]);
+        let t1 = Triangle::from_vertices([a, b, c]).unwrap();
+
+        let t2 = Triangle { normal: Vertex::new([0.0, 0.0, 1.0]),
+        vertices: [a, b, c]};
+
+        assert_eq!(t1, t2)
     }
 }
